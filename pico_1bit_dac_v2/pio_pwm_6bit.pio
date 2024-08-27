@@ -37,17 +37,17 @@
 ;  0  1_______________________________________________________________.________________________________________________________________132^~~~   5:131( 11:137)
 
 .program pwm_6bit
-.side_set 1
+.side_set 1  // 1ピンのみ制御に変更
 
-    pull noblock    side 0  ; データをプルまたは最後の値を保持
-    mov x, osr      side 0  ; X = 6ビットPWM値
-    mov y, isr      side 0  ; Y = 64 (ループカウンタ)
+    pull noblock    side 0
+    mov x, osr      side 0
+    mov y, isr      side 0
 
 pwm_loop:
-    jmp x!=y        skip    ; PWM値とカウンタを比較
-    jmp skip        side 1  ; PWM値 >= カウンタの場合、出力を1に
+    jmp x!=y        skip
+    jmp skip        side 1
 skip:
-    jmp y-- pwm_loop side 0 ; カウンタをデクリメントしてループ
+    jmp y-- pwm_loop side 0
 
 // ... 残りのコードは省略 ...
 
