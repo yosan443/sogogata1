@@ -1,0 +1,140 @@
+; pio pwm 6bit version
+; Ver.0.1
+;
+;[PWM Specification]
+;   PIN_FS48        : 1           (0)          
+;   -------------------------------------------
+;   PIO clock[MHz]  : 208.8       (208.8)      ; common clock
+;   PWM cycle[clk]  : 136         (148)         
+;   PWM carrier[MHz]: 1.535294    (1.410810)   
+;   Error[MHz/ppm]  : 1.536/-459  (1.4112/-275)
+;
+;[PIO FIFO input data format]
+; bit         3130 29       24 23       18 17       12 11       06 05       00
+;             +---+-----------+-----------+-----------+-----------+-----------+
+;  4 x 6-bit  |N/A|    N/A    |   DATA3   |   DATA2   |   DATA1   |   DATA0   |
+;  PWM Data   +---+-----------+-----------+-----------+-----------+-----------+
+;                              <-New                                     Old->
+;  DATAn : 0~63, Center = 32
+;
+;[PWM Output Pattern]
+;6bit PWM "Triangle-Wave Modulation" Version :
+;irq2 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~__________________________________________________________________~~~~~~
+;irq3 ______________________________________________________________~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~____
+;DATAn:                                                               :                                                                   :      H:L  (  H:L  )
+; 63  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~64.__69~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~ 131:  5(137: 11)
+; 62  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~63_.___70~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~ 129:  7(135: 13)
+; 61  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~62__.____71~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~ 127:  9(133: 15)
+; ..
+; 33  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~34______________________________.________________________________99~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~  71: 65( 77: 71)
+; 32  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~33_______________________________.________________________________100~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~  69: 67( 75: 73)
+;osre ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~33_______________________________._________________________________101~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~  68: 68(---:---) <- FIFO Empty(Center Level)
+; 31  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~32________________________________._________________________________101~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~  67: 69( 73: 75)
+; 30  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~31_________________________________.__________________________________102~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~  65: 71( 71: 77)
+; ..
+;  2  ~~3_____________________________________________________________.______________________________________________________________130~~^~~~   9:127( 15:134)
+;  1  ~2______________________________________________________________._______________________________________________________________131~^~~~   7:129( 13:136)
+;  0  1_______________________________________________________________.________________________________________________________________132^~~~   5:131( 11:137)
+
+.program pio_pwm_6bit
+.side_set 2
+public entry_point:
+	wait 0 irq 2		side 0		;
+	jmp wait_irq3		side 0		;
+get_data:
+	out x 6				side 1		;135		x = osr & 0b11_1111; osr >>=6;
+.wrap_target
+	mov y x				side 1		;136{1}		y = x
+hi_loop:
+	jmp y-- hi_loop		side 1		;  1~64{33}	y+1 loop
+	wait 0 irq 2		side 2		; 65
+	mov isr !null		side 2		; 66	isr = 0b11...11_11111111
+	in x 6				side 2		; 67	isr = 0b11...11_11xxxxxx
+	mov y !isr			side 2		; 68	isr = 0b00...00_00zzzzzz (z = !x)
+lo_loop:
+	jmp y-- lo_loop		side 2		; 69~132{101}	(63 - x)+1 loop
+wait_irq3:
+	wait 0 irq 3		side 1		;133
+check_fifo:
+	jmp !osre get_data	side 1		;134	if TX FIFO is not empty, goto get_data
+fifo_empty:
+	set x 31			side 1	[1]	;136
+.wrap
+
+.program pio_pwm_6bit_pacemaker
+public entry_point:
+state_a:
+									;clk (Half-Clock)
+	irq nowait 3					; 63  64	irq3 = 1 without wait
+	irq clear 2						; 65  66	irq2 = 0 without wait
+	nop						[30]	;127 128	 66+(1+[30])*2
+	jmp pin state_b					;129 130
+	nop						[ 2]	;(+6)
+state_b:
+	irq nowait 2					;131 132	irq2 = 1 without wait
+	irq clear 3						;133 134	irq3 = 0 without wait
+	nop						[30]	; 59  60
+	jmp pin state_a					; 61  62
+	jmp state_a				[ 2]	;(+6)
+
+% c-sdk {
+#include "hardware/clocks.h"
+static inline void pio_pwm_program_init(PIO pio, uint pin_output_lp, uint pin_output_rp, uint pin_fs48) {
+
+	// fs切替ピンの初期化
+	gpio_init(pin_fs48);
+	gpio_set_dir(pin_fs48, GPIO_OUT);
+	gpio_put(pin_fs48, 1);	// PIN_FS48=H(Default:44k)
+
+	// PWM出力ピンのマスクパタン生成
+	const uint32_t pin_mask = (3u << pin_output_lp) | (3u << pin_output_rp);
+
+	// PWM出力ピンの無効化(ノイズ対策用)
+	// sm停止前にsmが利用するピンの出力をHi-z/Lowに切り替える
+	gpio_init_mask(pin_mask);			// gpio入力に切替(過渡ノイズ防止用)
+	gpio_clr_mask(pin_mask);			// gpio出力値を0に設定
+	gpio_set_dir_out_masked(pin_mask);	// gpio出力に切替
+
+	// 全smの停止とsm命令メモリの消去
+	pio_enable_sm_mask_in_sync(pio, 0);
+	pio_clear_instruction_memory(pio);
+
+	// sm0,sm1へのPWMプログラム登録
+	uint offset = pio_add_program(pio, &pio_pwm_6bit_program);	// add pioasm
+	pio_sm_config c = pio_pwm_6bit_program_get_default_config(offset);	// get default value
+	sm_config_set_out_shift(&c,true ,true , 24);		// osr : shift right, autopull, thr=24
+	sm_config_set_in_shift(&c, false,false, 32);		// isr : shift left,  no autopush, thr=32
+	sm_config_set_sideset(&c, 2, false, false);			// use 2-sideset, no msb flag, no direction pin
+	sm_config_set_jmp_pin(&c, pin_fs48);				// for jmp pin command
+	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);		// Deeper FIFO as we're not doing any RX
+	sm_config_set_clkdiv_int_frac(&c, 1, 0);			// div ratio = 1.0 (no divide, clk = 208.8MHz)
+
+	for(uint sm = 0; sm < 2; sm++){
+		uint pin = (sm == 0) ? pin_output_lp:pin_output_rp;	// sm=0:LP,1:RP
+		pio_sm_set_consecutive_pindirs(pio,sm,pin,2,true);	// pin_base = pin, pin_count = 2, output
+		sm_config_set_sideset_pins(&c, pin);				// for 'side' pins, base=pin_p
+		pio_sm_init(pio, sm, offset, &c);					// sm config & goto the start address
+		pio_sm_clear_fifos(pio, sm);						// flush remain fifo audio data(s)
+//		pio_gpio_init(pio, pin);							// GPIOn   for positive pin
+//		pio_gpio_init(pio, pin + 1);						// GPIOn+1 for negative pin
+	}
+
+	// sm2へのpacemaker設定
+	offset = pio_add_program(pio, &pio_pwm_6bit_pacemaker_program);	// add pioasm
+	c = pio_pwm_6bit_pacemaker_program_get_default_config(offset);
+	sm_config_set_jmp_pin(&c, pin_fs48);				// for jmp pin command
+	sm_config_set_clkdiv_int_frac(&c, 2, 0);			// div ratio = 2.0 (clk = 208.8MHz/2)
+	pio_sm_init(pio, 2, offset, &c);					// sm config & goto the start address
+
+	// sm0,1,2同期スタート
+	pio_enable_sm_mask_in_sync(pio, 7);					// synchronized start sm0,1,2
+
+	// PWM出力ピンの有効化
+	// sm稼働後にsmが利用するピンの出力をpioモードに切り替える
+	pio_gpio_init(pio, pin_output_lp);					// GPIOn   for positive pin
+	pio_gpio_init(pio, pin_output_lp + 1);				// GPIOn+1 for negative pin
+	pio_gpio_init(pio, pin_output_rp);					// GPIOn   for positive pin
+	pio_gpio_init(pio, pin_output_rp + 1);				// GPIOn+1 for negative pin
+}
+
+%}

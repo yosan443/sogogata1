@@ -1,0 +1,341 @@
+/**
+ * @file i2s_rx.pio
+ * @brief pico_1bit_dac_v2用 (pico_1bit_dac_HR2より派生)
+ * @author geachlab, Yasushi MARUISHI
+ * @version 0.01
+ * @date 2023.02.21
+ * @note HAT DAC I2S通信部分
+ *       i2s_rx_target
+ *       clock_width_counter
+ */
+
+; i2s_rx_target
+; clk_sys : 208.8MHz
+; input :
+;   pin + 0 : sdi
+;   pin + 1 : lrck (~384kHz)
+;   pin + 2 : bck  (~lrck*64)
+; outputs: 
+;   sm fifo : ~ 384kHz *2Ch 32-bit data ; Ch0(L)->Ch1(R)->Ch0(L)->....
+;        31           24 23           16 15            8 7             0
+;       +---------------+---------------+---------------+---------------+
+; 16bit |X X X X X X X X X X X X X X X X| 16-bit PCM                    |
+;       +---------------+---------------+---------------+---------------+
+; 24bit |X X X X X X X X| 24-bit PCM                                    |
+;       +---------------+---------------+---------------+---------------+
+; 32bit | 32-bit PCM                                                    |
+;       +---------------+---------------+---------------+---------------+
+;
+;<i2s format>
+; bck ___/~~\__/~~\__/~~\__/~~\_...~\__/~~\__/~~\__/~~\__/~~
+;lrck ~~~~~~\___________________..._______/~~~~~~~~~~~~~~~~~
+;      _____ _____ _____ _____ _..._ _____ _____ _____ _____
+;  sd X_____X_LSB_X_MSB_X_____X_..._X_____X_LSB_X_MSB_X_____
+;  ch  ------ch1->|<-ch0--------...--------ch0->|<-ch1------
+                                                
+.program i2s_rx_target
+ch0_push:
+    push noblock		;  4
+ch1_loop:
+    wait 1 pin 2		;4~5 wait bck=l(pinctrl_in_base +2)
+    wait 0 pin 2		;  1 wait bck=h
+    in pins 1			;  2 get sd_in (1-bit)
+    jmp pin ch1_loop	;  3 if (lrck_in==h) goto ch1_loop
+ch1_push:
+    push noblock		;  4
+public entry_point:
+.wrap_target
+ch0_loop:
+    wait 1 pin 2		;4~5 wait bck=l
+    wait 0 pin 2		;  1 wait bck=h 
+    in pins 1			;  2 get sd_in (1-bit)
+    jmp pin ch0_push	;  3 if (lrck_in==h) goto ch0_push_data
+.wrap
+
+; clock_width_counter
+; clk_sys : 208.8MHz
+; input   :
+;   sm fifo : Number of clocks to Measure N-1 (N は 計測するクロック) 
+;   pin   : measuring target clock, ~ 26.1MHz
+; outputs: 
+;   sm fifo : N-cycle count data by clk_sys/2
+;        31           24 23           16 15            8 7             0
+;       +---------------+---------------+---------------+---------------+
+; count | 104.4MHz * N / pin frequency                                  |
+;       +---------------+---------------+---------------+---------------+
+;
+; clk_sys _/~\_/~\_/~\_/~\_/~\_/~\_/~\_/~\_/~\_/~\_/~\_/~\_/~\_/~
+; pin     _______/~~~~~~~~~~~~~~~~\________________/~~~~~~~~~~~~~
+; x                     n-1                             n-2      
+; y         m-0     m-1     m-2     m-3     m-4     m-5     m-6  
+
+.program clock_width_counter
+count_n_loop:
+    jmp y-- count_n		; y--;	clk = H 区間カウント
+count_n:
+    jmp x-- count_h_loop; if(x--) goto count_h_loop; n回ループ判定
+report_count:
+    mov isr !y          ; isr=!(-w-1) = w; 反転(1の補数)で正に変換
+    push noblock        ; RXFIFO[] = isr; RXFIFOにカウント値を転送
+public entry_point:
+    mov y null          ; y = 0; clk幅カウンタリセット
+; TXFIFOから新ループ回数取得 TXFIFOが空の場合は旧ループ回数を再利用
+    mov x osr           ; x = osr; 旧ループ回数をxに退避
+    pull ifempty noblock; if(FIFO_empty) osr=x; 旧ループ回数再利用
+                        ; else osr = TXFIFO[]; 新ループ回数取得
+    mov x osr           ; x = osr; 新ループ回数をxに格納
+;   jmp x-- wait_clk_l2h; x-- ループ回数はn+1回となるため1減算;
+wait_clk_l2h:
+    wait 0 pin 0        ; until(clk == L); L待機
+    wait 1 pin 0        ; until(clk == H); H(clk開始点)待機
+count_h_loop:
+    jmp y-- check_clk_h ; y--; clk = H 区間カウント
+check_clk_h:
+    jmp pin count_h_loop; if(clk==H) goto count_h_loop;
+.wrap_target
+count_l_loop:
+    jmp y-- check_clk_l ; y--; clk = L 区間カウント
+check_clk_l:
+    jmp pin count_n_loop; if(clk==H) goto count_n_loop;
+                        ; else goto .wrap_target(count_l_loop);
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static PIO cwc_pio;     // clock_width_counter の pio番号登録用
+static uint cwc_offset; // clock_width_counter の offset登録用
+/**
+ * PIO : pio number;
+ * pin     : sd_in
+ * pin + 1 : lrck_in
+ * pin + 2 : bck_in
+ */
+static inline void i2s_rx_target_program_init(PIO pio, uint start_pin){
+
+    pio_enable_sm_mask_in_sync(pio, 0);		// 全sm停止
+    pio_clear_instruction_memory(pio);      // 全命令消去
+    /* set i2s_rx_target to sm0 */
+    uint sm = 0; // i2s_rx_target は sm0固定
+    uint pin = start_pin;
+    uint offset = pio_add_program(pio, &i2s_rx_target_program);	// add pioasm
+
+//	pio_gpio_init(pio, pin    );	// sd_in (no needed because input pin)
+//	pio_gpio_init(pio, pin + 1);	// lrck_in (no needed because input pin)
+//	pio_gpio_init(pio, pin + 2);	// bck_in  (no needed because input pin)
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 3, false);	// pin_base=pin, pin_count=3, input 
+    pio_sm_config c = i2s_rx_target_program_get_default_config(offset);	// get default value
+//	sm_config_set_out_shift(&c,false ,false, 32);	// osr : shift left, no autopull, thr=32, not used osr
+    sm_config_set_in_shift(&c, false, false, 32);	// isr : shift left(msb first), no autopush, thr=32
+//	sm_config_set_sideset_pins(&c, pin);			// for 'side' pins, base=pin
+//	sm_config_set_sideset(&c, 2, false, false);		// use 2-sideset, no msb flag, no direction pin
+//	sm_config_set_out_pins(&c, pin + 2, 1);			// for 'out' pins, set_base=pin+2, set_count=1 
+    sm_config_set_in_pins(&c, pin + 0);				// for 'in' pins, set_base = pin + 0(sd_in)
+    sm_config_set_jmp_pin(&c, pin + 1);				// for 'jmp' pin, set_base = pin + 1(lrck_in)
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);	// Deeper FIFO as we're not doing any RX
+    sm_config_set_clkdiv_int_frac(&c, 1, 0);		// div ratio = 1 + 0 / 256 = 1.0
+    pio_sm_init(pio, sm, offset, &c);				// sm config & go to the start address
+    pio_sm_clear_fifos(pio, sm);					// flush remain fifo data(s)
+    pio_sm_set_enabled(pio, sm, true);				// Start sm
+
+//    printf("i2s_rx_target offset, offset_entry_point = %d,%d\n", offset, i2s_rx_target_offset_entry_point);
+}
+
+//static inline void clock_width_counter_program_init(PIO pio, uint start_pin, uint *loop_num){
+static inline void clock_width_counter_program_init(PIO pio, uint start_pin){
+    cwc_pio = pio;
+    uint pin = start_pin;
+    /* set clock_width_counter to  sm1~3 */
+    uint offset = pio_add_program(pio, &clock_width_counter_program);	// add pioasm
+    cwc_offset = offset;
+    uint pin_offset[4] = { 0, 1, 2, 1 }; // SDI, LRCK, BCK, LRCK
+    for(uint sm = 1; sm <= 3; sm++){
+        pin = start_pin + pin_offset[sm];
+        pio_gpio_init(pio, pin);						// clk in
+        pio_sm_set_consecutive_pindirs(pio,sm,pin,1,false);	// pin_base=pin, pin_count=1, input 
+        pio_sm_config c = clock_width_counter_program_get_default_config(offset);	// get default value
+        sm_config_set_out_shift(&c,true ,false, 32);	// osr : shift right, no autopull, thr=32 
+        sm_config_set_in_shift(&c, false, false, 32);	// isr : shift left,  no autopush, thr=32
+        sm_config_set_in_pins(&c, pin);					// 'in' pins, set_base=pin
+        sm_config_set_jmp_pin(&c, pin);					// 'jmp' pin
+        sm_config_set_clkdiv_int_frac(&c, 1,    0);		// div ratio = 1.0 = 1 + 0/256
+        pio_sm_init(pio, sm, offset, &c);				// sm config & go to the start address
+        pio_sm_clear_fifos(pio, sm);					// flush remain fifo data(s)
+    }
+}
+
+static int count_o[4] = {0};
+
+// clock_width_counter にクロック計測回数nを設定する
+static inline bool set_clock_width_counter_n(uint sm, uint num){
+    // sm1~3 以外は0を返却し強制終了
+    if((sm>3)||(sm==0)) return false;
+
+    // クロック計測処理を中止・初期化し、entry_pointからリスタート
+    pio_sm_set_enabled(cwc_pio, sm, false); // sm停止
+    pio_sm_clear_fifos(cwc_pio, sm);        // TX/RX FIFOをクリア
+    pio_sm_restart(cwc_pio, sm);            // sm状態リセット
+	pio_sm_exec(cwc_pio, sm, pio_encode_jmp(
+        cwc_offset
+      + clock_width_counter_offset_entry_point)); //開始番地にジャンプ
+	pio_sm_put(cwc_pio, sm, num - 1);		// TX FIFOにnum-1を設定
+	pio_sm_set_enabled(cwc_pio, sm, true);	// sm開始
+    count_o[sm] = 0;                        // 旧カウント値リセット
+	return true;
+}
+
+// clock_width_counter の計測値wを得る
+static inline int get_clock_width_counter_w(uint sm){
+    // sm1~3 以外は0を返却し強制終了
+    if((sm>3)||(sm==0)) return 0;
+
+    // カウント初期値を旧カウント値とする
+    int count = count_o[sm];
+
+    // fifo empty になるまで最新カウント値取得を繰り返す
+    // 最初からemptyの場合は初期値=旧カウント値のままとなる
+    // 初回のFIFO値が積まれるまではカウント値は0となる
+    while(!pio_sm_is_rx_fifo_empty(cwc_pio, sm)){
+        count = pio_sm_get_blocking(cwc_pio, sm);
+    }
+    // 旧カウント値更新と新カウント値返却
+    count_o[sm] = count;
+    return count;
+}
+                                                                   
+%}
+
+/* 以下は不採用プログラム */
+/*
+// i2s_rx_target 個別組み込み用
+% c-sdk {
+#include "hardware/clocks.h"
+static inline void i2s_rx_target_program_init(PIO pio, uint sm, uint pin) {
+    uint offset = pio_add_program(pio, &i2s_rx_target_program);	// add pioasm
+//	pio_gpio_init(pio, pin    );	// sd_in (no needed because input pin)
+//	pio_gpio_init(pio, pin + 1);	// lrck_in (no needed because input pin)
+//	pio_gpio_init(pio, pin + 2);	// bck_in  (no needed because input pin)
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 3, false);	// pin_base=pin, pin_count=3, input 
+    pio_sm_config c = i2s_rx_target_program_get_default_config(offset);	// get default value
+//	sm_config_set_out_shift(&c,false ,false, 32);		// osr : shift left, no autopull, thr=32, not used osr
+    sm_config_set_in_shift(&c, false, false, 32);		// isr : shift left(msb first), no autopush, thr=32
+//	sm_config_set_sideset_pins(&c, pin);				// for 'side' pins, base=pin
+//	sm_config_set_sideset(&c, 2, false, false);			// use 2-sideset, no msb flag, no direction pin
+//	sm_config_set_out_pins(&c, pin + 2, 1);				// for 'out' pins, set_base=pin+2, set_count=1 
+    sm_config_set_in_pins(&c, pin + 0);					// for 'in' pins, set_base = pin + 0(sd_in)
+    sm_config_set_jmp_pin(&c, pin + 1);					// for 'jmp' pin, set_base = pin + 1(lrck_in)
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);		// Deeper FIFO as we're not doing any RX
+    sm_config_set_clkdiv_int_frac(&c, 1, 0);			// div ratio = 1 + 0 / 256 = 1.0
+    pio_sm_init(pio, sm, offset, &c);					// sm config & go to the start address
+    pio_sm_clear_fifos(pio, sm);						// flush remain fifo data(s)
+    pio_sm_set_enabled(pio, sm, true);					// 
+}
+%}
+
+// clock_width_counter  個別組み込み用
+% c-sdk {
+#include "hardware/clocks.h"
+
+static PIO s_pio;
+static uint s_sm;
+static uint offset;
+
+static inline void clock_width_counter_program_init(PIO pio, uint sm, uint pin, uint loop_num) {
+    s_pio = pio;
+    s_sm = sm;
+    offset = pio_add_program(pio, &clock_width_counter_program);	// add pioasm
+//	pio_gpio_init(pio, pin    );	// fin
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);	// pin_base=pin, pin_count=1, input 
+    pio_sm_config c = clock_width_counter_program_get_default_config(offset);	// get default value
+    sm_config_set_out_shift(&c,true ,false, 32);		// osr : shift right, no autopull, thr=32 
+    sm_config_set_in_shift(&c, false, false, 32);		// isr : shift left,  no autopush, thr=32
+//	sm_config_set_sideset_pins(&c, pin);				// for 'side' pins, base=pin
+//	sm_config_set_sideset(&c, 2, false, false);			// use 2-sideset, no msb flag, no direction pin
+//	sm_config_set_out_pins(&c, pin, 1);					// 'out' pins, set_base=pin+2, set_count=1 
+    sm_config_set_in_pins(&c, pin);						// 'in' pins, set_base=pin
+    sm_config_set_jmp_pin(&c, pin);						// 'jmp' pin
+//	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);		// Deeper FIFO as we're not doing any RX
+    sm_config_set_clkdiv_int_frac(&c, 1,    0);			// div ratio = 1.0 = 1 + 0/256
+    pio_sm_init(pio, sm, offset, &c);					// sm config & go to the start address
+    pio_sm_clear_fifos(pio, sm);						// flush remain fifo data(s)
+    pio_sm_put_blocking(pio, sm, loop_num);				// 固定値
+//	pio_sm_put_blocking(pio, sm, 1023);					// 固定値
+    pio_sm_set_enabled(pio, sm, true);					// 
+//	printf ("offset = %d\n", offset);
+}
+
+static inline void clock_width_counter_program_remove(void){
+    pio_sm_set_enabled(s_pio, s_sm, false);
+    pio_sm_clear_fifos(s_pio, s_sm);						// flush remain fifo data(s)
+    pio_remove_program(s_pio, &clock_width_counter_program, offset);
+//	pio_sm_set_jmp_pin(s_pio, s_sm, 0);
+}
+%}
+
+
+// bit_depth_checker
+// PIOベースのビット長検出 bckでlrckをサンプリングし、lrck=Hの長さを計測
+
+; i2s_rx_target_bit_depth_checker
+; clk_sys : 208.8MHz
+; input :
+;   pin + 0 : lrck_in (~384kHz)
+;   pin + 1 : bck_in  (~lrck*64)
+; outputs: 
+;   sm fifo rx :
+;        31           24 23           16 15            8 7             0
+;       +---------------+---------------+---------------+---------------+
+;  8bit |0 0 0 0 0 0 0 0|0 0 0 0 0 0 0 0|0 0 0 0 0 0 0 0|1 1 1 1 1 1 1 1| = 0x000000ff
+;       +---------------+---------------+---------------+---------------+
+; 16bit |0 0 0 0 0 0 0 0|0 0 0 0 0 0 0 0|1 1 1 1 1 1 1 1|1 1 1 1 1 1 1 1| = 0x0000ffff
+;       +---------------+---------------+---------------+---------------+
+; 24bit |0 0 0 0 0 0 0 0|1 1 1 1 1 1 1 1|1 1 1 1 1 1 1 1|1 1 1 1 1 1 1 1| = 0x00ffffff
+;       +---------------+---------------+---------------+---------------+
+; 32bit |1 1 1 1 1 1 1 1|1 1 1 1 1 1 1 1|1 1 1 1 1 1 1 1|1 1 1 1 1 1 1 1| = 0xffffffff
+;       +---------------+---------------+---------------+---------------+
+; other : Unknown / Invalid data 
+;
+;<i2s format>
+;bck_in  ___/~~\__/~~\__/~~\__/~~\__/~~\_...~\__/~~\__/~~\__/~~\__/~~\__/~~\__/~~
+;lrck_in ~~~~~~\_________________________...___________________/~~~~~~~~~~~~~~~~~
+;         _____ _____ _____ _____ _____ _..._ _____ _____ _____ _____ _____ _____
+;  sd_in X_____X_LSB_X_MSB_X_____X_____X_..._X_____X_____X_____X_LSB_X_MSB_X_____
+;data_ch  ------ch1->|<-ch0--------------...--------------------ch0->|<-ch1------
+
+.program i2s_rx_target_bit_depth_checker
+                        ;clk_sys
+capture_lrck_h:
+    in pins 1				;  3	isr <<= 1; isr |= lrck_in;
+.wrap_target
+    wait 0 pin 1			;4~5	until(bck_in == 0); // pinctrl_in_base +1
+    wait 1 pin 1			;  1	until(bck_in == 1);
+    jmp pin capture_lrck_h	;  2	if(lrck_in == 1) goto capture_lrck_h;
+push_lrck_pattern:
+    push noblock			;  3	rx_fifo[] = isr; isr = 0;
+public entry_point:
+    wait 1 pin 0			;  4	until(lrck == 1);
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+static inline void i2s_rx_target_bit_depth_checker_program_init(PIO pio, uint sm, uint pin) {
+    uint offset = pio_add_program(pio, &i2s_rx_target_bit_depth_checker_program);	// add pioasm
+//	pio_gpio_init(pio, pin + 0);	// lrck_in (no needed because input pin)
+//	pio_gpio_init(pio, pin + 1);	// bck_in  (no needed because input pin)
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 2, false);	// pin_base=pin, pin_count=2, input 
+    pio_sm_config c = i2s_rx_target_bit_depth_checker_program_get_default_config(offset);	// get default value
+//	sm_config_set_out_shift(&c,false ,false, 32);		// osr : shift left, no autopull, thr=32, not used osr
+    sm_config_set_in_shift(&c, false, false, 32);		// isr : shift left(msb first), no autopush, thr=32
+//	sm_config_set_sideset_pins(&c, pin);				// for 'side' pins, base=pin
+//	sm_config_set_sideset(&c, 2, false, false);			// use 2-sideset, no msb flag, no direction pin
+//	sm_config_set_out_pins(&c, pin + 2, 1);				// for 'out' pins, set_base=pin+2, set_count=1 
+    sm_config_set_in_pins(&c, pin + 0);					// for 'in' pins, set_base = pin + 0(lrck_in)
+    sm_config_set_jmp_pin(&c, pin + 0);					// for 'jmp' pin, set_base = pin + 1(lrck_in)
+//	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);		// Deeper FIFO as we're not doing any RX
+    sm_config_set_clkdiv_int_frac(&c, 1, 0);			// div ratio = 1 + 0 / 256 = 1.0
+    pio_sm_init(pio, sm, offset, &c);					// sm config & go to the start address
+    pio_sm_clear_fifos(pio, sm);						// flush remain fifo data(s)
+    pio_sm_set_enabled(pio, sm, true);					// 
+}
+%}
+*/
