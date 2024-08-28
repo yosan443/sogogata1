@@ -36,20 +36,30 @@
 ;  1  ~2______________________________________________________________._______________________________________________________________131~^~~~   7:129( 13:136)
 ;  0  1_______________________________________________________________.________________________________________________________________132^~~~   5:131( 11:137)
 
-.program pwm_6bit
-.side_set 1  // 1ピンのみ制御に変更
-
-    pull noblock    side 0
-    mov x, osr      side 0
-    mov y, isr      side 0
-
-pwm_loop:
-    jmp x!=y        skip
-    jmp skip        side 1
-skip:
-    jmp y-- pwm_loop side 0
-
-// ... 残りのコードは省略 ...
+.program pio_pwm_6bit
+.side_set 2
+public entry_point:
+	wait 0 irq 2		side 0		;
+	jmp wait_irq3		side 0		;
+get_data:
+	out x 6				side 1		;135		x = osr & 0b11_1111; osr >>=6;
+.wrap_target
+	mov y x				side 1		;136{1}		y = x
+hi_loop:
+	jmp y-- hi_loop		side 1		;  1~64{33}	y+1 loop
+	wait 0 irq 2		side 2		; 65
+	mov isr !null		side 2		; 66	isr = 0b11...11_11111111
+	in x 6				side 2		; 67	isr = 0b11...11_11xxxxxx
+	mov y !isr			side 2		; 68	isr = 0b00...00_00zzzzzz (z = !x)
+lo_loop:
+	jmp y-- lo_loop		side 2		; 69~132{101}	(63 - x)+1 loop
+wait_irq3:
+	wait 0 irq 3		side 1		;133
+check_fifo:
+	jmp !osre get_data	side 1		;134	if TX FIFO is not empty, goto get_data
+fifo_empty:
+	set x 31			side 1	[1]	;136
+.wrap
 
 .program pio_pwm_6bit_pacemaker
 public entry_point:
@@ -122,7 +132,9 @@ static inline void pio_pwm_program_init(PIO pio, uint pin_output_lp, uint pin_ou
 	// PWM出力ピンの有効化
 	// sm稼働後にsmが利用するピンの出力をpioモードに切り替える
 	pio_gpio_init(pio, pin_output_lp);					// GPIOn   for positive pin
+	pio_gpio_init(pio, pin_output_lp + 1);				// GPIOn+1 for negative pin
 	pio_gpio_init(pio, pin_output_rp);					// GPIOn   for positive pin
+	pio_gpio_init(pio, pin_output_rp + 1);				// GPIOn+1 for negative pin
 }
 
 %}

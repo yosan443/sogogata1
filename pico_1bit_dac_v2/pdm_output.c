@@ -71,17 +71,19 @@ typedef struct {
 	int32_t		d1;				// 前回入力データ 線形補間用
 } pcm2pwm_arg_t;
 
-static pcm2pwm_arg_t ch0;	// L/R Channel PWM変換処理構造体
+static pcm2pwm_arg_t ch[N_CH];	// L/R Channel PWM変換処理構造体
 static uint32_t ds_pwm_offset;	// ΔΣ/PWM OB(Offset Binary)演算用加算値
 
 // PWM変換初期化
 // PWM変換処理構造体のゼロクリアを行う
 void pcm2pwm_reset(void){
 	// 遅延データクリア ゼロフィル
-	ch0.d1 = 0;
+	ch[0].d1 = 0;
+	ch[1].d1 = 0;	
 	// ΔΣワーククリア
 	for(uint k = 0; k < DS_MAX; k++){
-		ch0.ds[k] = 0;
+		ch[0].ds[k] = 0;
+		ch[1].ds[k] = 0;
 	}
 }
 
@@ -100,11 +102,19 @@ void pcm2pwm_init(uint pwm_bit){
 	cfg = interp_default_config();                  // set default config
 	interp_config_set_add_raw(&cfg, true);          // Use ADD_RAW path (as accum[0] += base[0]) 
 	interp_config_set_shift(  &cfg, 0);             // Setting the bit width increased by the Interp processing
-	interp_config_set_mask(   &cfg, 0, 31);         // Setting the effective bit mask width for Interp processing
-	interp_config_set_signed( &cfg, false);         // Not Use sign-extended
-	interp_set_config(interp0, 0, &cfg);            // Set interp0 lane0
-	interp0->accum[0] = 0;                          // Reset
-	interp0->base[0] = 0;                           // Reset
+	interp_config_set_mask(   &cfg, 0, 31);         // Setting the 	ch0.d1 = 0;
+	// ΔΣワーククリア
+	for(uint k = 0; k < DS_MAX; k++){
+		ch0.ds[k] = 0;
+>>>>>>> HEAD
+e sign-e	ch[0].d1 = 0;
+	ch[1].d1 = 0;	
+	// ΔΣワーククリア
+	for(uint k = 0; k < DS_MAX; k++){
+		ch[0].ds[k] = 0;
+		ch[1].ds[k] = 0;
+>>>>>>> 847e407
+                       // Reset
 	interp0->base[2] = ds_pwm_offset;               // DS/PWM OB演算用オフセット
 
 	// Interp0 Lane1 : アイドルトーン拡散
@@ -253,14 +263,6 @@ static inline void pio0_sm01_put_blocking(
 #endif
 }
 
-static inline void pio0_sm0_put_blocking(uint32_t ch0_data)
-{
-    while((pio0->fstat & PIO_FSTAT_TXFULL_BITS) != 0){
-        tight_loop_contents();
-    }
-    pio0->txf[0] = ch0_data;
-}
-
 // 再生処理
 void pdm_output()
 {
@@ -323,10 +325,11 @@ void pdm_output()
 			dequeue(&buff, &len);	// キューbuff/len取得　失敗時は buff/lenは更新されずミュートバッファのままとなる
 			DEBUG_PIN_SET(PIN_TIME_MEASURE);		// テスト用 オシロ観測用トリガ PCMデータ先頭で1
 			while(len--){		// Buffer loop
-				pcm2pwm(*buff++, &ch0);			// LCh PWM変換 結果は構造体 ch[].bs (bitstream)に代入される
+				pcm2pwm(*buff++, &ch[0]);			// LCh PWM変換 結果は構造体 ch[].bs (bitstream)に代入される
+				pcm2pwm(*buff++, &ch[1]);			// RCh PWM変換 結果は構造体 ch[].bs (bitstream)に代入される
 				DEBUG_PIN_SET(PIN_PIOT_MEASURE);	// テスト用 pio設定前にH。pioに待たされている時刻測定用
 				for(uint k = 0; k < os_outer_loop_n; k ++){
-					pio0_sm0_put_blocking(ch0.bs[k]);	// LCh/RCh Bitstream を PIO PWMへ出力
+					pio0_sm01_put_blocking(ch[0].bs[k], ch[1].bs[k]);	// LCh/RCh Bitstream を PIO PWMへ出力
 				}
 				DEBUG_PIN_CLR(PIN_PIOT_MEASURE);	// テスト用 pio設定後にL。pioに待たされている時刻測定用
 			}
