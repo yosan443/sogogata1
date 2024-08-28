@@ -122,9 +122,7 @@ static inline void pio_pwm_program_init(PIO pio, uint pin_output_lp, uint pin_ou
 	// PWM出力ピンの有効化
 	// sm稼働後にsmが利用するピンの出力をpioモードに切り替える
 	pio_gpio_init(pio, pin_output_lp);					// GPIOn   for positive pin
-	pio_gpio_init(pio, pin_output_lp + 1);				// GPIOn+1 for negative pin
 	pio_gpio_init(pio, pin_output_rp);					// GPIOn   for positive pin
-	pio_gpio_init(pio, pin_output_rp + 1);				// GPIOn+1 for negative pin
 }
 
 %}
