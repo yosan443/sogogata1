@@ -24,3 +24,8 @@ include(example_auto_set_url.cmake)
 #add_subdirectory(pico_1bit_dac_HR)	# HiReso support
 #add_subdirectory(pico_1bit_dac_HR2)	# HiReso support 2nd
 add_subdirectory(pico_1bit_dac_v2)	# for pico_1bit_dac/pico_diydac_v2 board
+
+target_compile_definitions(pico_1bit_dac_v2 PRIVATE
+    PICO_AUDIO_L_PIN=37
+    PICO_AUDIO_R_PIN=39
+)

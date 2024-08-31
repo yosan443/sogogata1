@@ -102,11 +102,19 @@ void pcm2pwm_init(uint pwm_bit){
 	cfg = interp_default_config();                  // set default config
 	interp_config_set_add_raw(&cfg, true);          // Use ADD_RAW path (as accum[0] += base[0]) 
 	interp_config_set_shift(  &cfg, 0);             // Setting the bit width increased by the Interp processing
-	interp_config_set_mask(   &cfg, 0, 31);         // Setting the effective bit mask width for Interp processing
-	interp_config_set_signed( &cfg, false);         // Not Use sign-extended
-	interp_set_config(interp0, 0, &cfg);            // Set interp0 lane0
-	interp0->accum[0] = 0;                          // Reset
-	interp0->base[0] = 0;                           // Reset
+	interp_config_set_mask(   &cfg, 0, 31);         // Setting the 	ch0.d1 = 0;
+	// ΔΣワーククリア
+	for(uint k = 0; k < DS_MAX; k++){
+		ch0.ds[k] = 0;
+>>>>>>> HEAD
+e sign-e	ch[0].d1 = 0;
+	ch[1].d1 = 0;	
+	// ΔΣワーククリア
+	for(uint k = 0; k < DS_MAX; k++){
+		ch[0].ds[k] = 0;
+		ch[1].ds[k] = 0;
+>>>>>>> 847e407
+                       // Reset
 	interp0->base[2] = ds_pwm_offset;               // DS/PWM OB演算用オフセット
 
 	// Interp0 Lane1 : アイドルトーン拡散
