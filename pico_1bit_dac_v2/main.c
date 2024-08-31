@@ -35,7 +35,7 @@
 #include "audio_state.h"
 #include "bsp.h"
 #include "usb_audio.h"
-#include "i2s_rx.h"
+////#include "i2s_rx.h"
 #include "dsp.h"
 #include "simple_queue.h"
 #include "pdm_output.h"
@@ -54,25 +54,8 @@ int main(void) {
 
     queue_init();
 	dsp_init();
-
-	// ボードの動作モード設定
-	// VBUS給電時はUSB DAC Mode、VBUS非給電時はHAT DAC Modeとし、モードに応じた初期化を行う
-	if (get_pico_usb_vbus_status() == true){
-		puts("USB DAC MODE");
-		// USBの場合はpicoオンボードLED点滅→消灯
-		for(int i = 0; i < 2; i++){
-			set_pico_onboard_led(true ); sleep_ms(63);
-			set_pico_onboard_led(false); sleep_ms(63);
-		}
-		usb_init();
-		audio_state.source = FROM_USB;
-	} else {
-		puts("HAT DAC MODE");
-		// I2Sの場合はpicoオンボード点灯
-		set_pico_onboard_led(true );
-		i2s_init();
-		audio_state.source = FROM_I2S_TARGET;
-	}
+	puts("USB DAC MODE"); ////
+	audio_state.source = FROM_USB; ////
 
 	// core1(x8OverSampling~ΔΣ~pdm出力)起動
 	multicore_launch_core1(pdm_output);
@@ -96,10 +79,11 @@ int main(void) {
 			int32_t* dsp_buf = audio_state.dsp_buf;
 			uint len = audio_state.len; 
 
-			// 音量処理 現状はUSBソースのみ処理
-			if(audio_state.source == FROM_USB) {
-				volume(dsp_buf, len, audio_state.vol_mul, audio_state.vol_shift);
-			}
+			// 音量処理 現状はUSBソースのみ処理 ////USBのみのため条件分岐は不要
+////			if(audio_state.source == FROM_USB) {
+////				volume(dsp_buf, len, audio_state.vol_mul, audio_state.vol_shift);
+////			}
+			volume(dsp_buf, len, audio_state.vol_mul, audio_state.vol_shift);
 			DEBUG_PIN(PIN_GP13, 0);
 
 			// 連結ハーフバンドフィルタによる周波数適応オーバーサンプリング処理
@@ -112,13 +96,13 @@ int main(void) {
 				len--;
 			}
 
-			// ASRC処理 I2S_TARGETソースのみ処理
-			if(audio_state.source == FROM_I2S_TARGET) {
-				if(asrc_pitch_update()){
+			// ASRC処理 I2S_TARGETソースのみ処理 ////I2sソース無効化に伴いASRC処理も全面的に無効化
+////			if(audio_state.source == FROM_I2S_TARGET) {
+////				if(asrc_pitch_update()){
 //					printf("%2d %2d %3d %9.7f %6d\n", queue_length, audio_state.bit_depth, audio_state.fs/1000, (float)audio_state.asrc_pitch/(float)(1<<22), (int32_t)((int64_t)104400000*48000/audio_state.count_long));
-				}
-				asrc(&dsp_buf, &len, audio_state.asrc_pitch);
-			}
+////				}
+////				asrc(&dsp_buf, &len, audio_state.asrc_pitch);
+////			}
 
 			// オーバーサンプリング後のデータをキューに積む
 			enqueue(dsp_buf, len);

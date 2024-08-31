@@ -1,11 +1,14 @@
 /**
  * @file dsp.c
  * @author geachlab, Yasushi MARUISHI
+ * @add Yoshimi Sugawara
  * @brief dsp処理関数群、周辺関数
- * @version 0.01
+ * @version 0.01Y
  * @date 2023-02-21
+ * @add_date 2024-08-27
  * @note 旧名称 oversampler.c
  *       dsp処理を集結 : oversampler, volume, asrc 周波数管理関数等  
+ * @add_note 今回の開発する機器の目的に合わせ、一部記述を削除。加筆部分は行末に////と説明を追加。無効化部分は////でコメントアウト。
  */
 
 // 連結ハーフバンドフィルタの処理時間計測時に1とする
@@ -322,6 +325,7 @@ void hbf_oversampler_reset(void){
 
 // 音量処理関数
 // 従来の64bit演算を32bit化し高速化を行っている
+/*
 void volume(int32_t* buf, uint32_t sample_num, int32_t mul, uint shift){
 	int32_t d;			// work data
 	while(sample_num --){
@@ -329,6 +333,7 @@ void volume(int32_t* buf, uint32_t sample_num, int32_t mul, uint shift){
 		d = *buf;	*buf++ = (d * mul) >> shift;	// Volume処理
 	}
 }
+////
 
 /* オーバーサンプリング、音量処理用バッファ宣言
  384k用バッファを宣言。中間処理で必要な 192,96,48kHz用バッファは個別に持たず、
@@ -412,6 +417,7 @@ void hbf_oversampler(int32_t** buf, uint *p_len, uint fs){
 	*buf = dsp_buf_384k;
 }
 
+/*////
 
 // ASRC 固定小数点精度の定義
 #define	ASRC_FRAC_BIT	22
@@ -421,11 +427,10 @@ void hbf_oversampler(int32_t** buf, uint *p_len, uint fs){
 static uint32_t	asrc_pos = 0;
 static int32_t asrc_buf[QUEUE_WIDTH + 2];
 
-/**
  * ASRC処理
  * ASRC:Asynchronous Sampling Rate Converter
  * fpn_delta : 10.22 整数部10bit、小数部22bit
- */
+
 void asrc(int32_t** buf, uint* p_len, uint32_t pitch)
 {
 	uint len_i = *p_len;	// ASRC入力データ数
@@ -478,10 +483,11 @@ void asrc_reset(void){
 	// asrcポジションのクリア
 	asrc_pos = 0;
 }
+*////
 
 void dsp_reset(void){
 	hbf_oversampler_reset();
-	asrc_reset();
+////	asrc_reset();
 }
 
 void dsp_init(void){
