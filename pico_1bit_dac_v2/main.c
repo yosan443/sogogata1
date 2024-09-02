@@ -2,8 +2,9 @@
  * @file main.c
  * @brief pico_1bit_dac_v2用 (pico_1bit_dac_HR2より派生)
  * @author geachlab, Yasushi MARUISHI
- * @version 0.01
- * @date 2023.02.21
+ * @adder 菅原嘉美
+ * @version 0.01Y
+ * @date 2024.08.27
  * @note USB DAC / HAT DAC両対応版
  *       I2S受信」機能追加に伴い、ファイル構造を整理
  * 旧:  pico_1bit_dac.c 初期化,USB受信/音量/DSP/再生処理,misc
@@ -16,7 +17,9 @@
  *      bsp.c/h         ボード依存処理・GPIO定義・初期化
  * 継承:simple_queue.c/h Core0->Core1 PCMデータキュー管理
  *      pdm_output.c/h  後段x8オーバーサンプリング、ΔΣ、PWM出力
- */
+ * @add_note USBのみ対応に変更→I2S関連機能を削除
+ *			 bsp.c/hを削除し、代替としてpins.c/hを作成 
+ */ 
 
 // デバッグ時に1とする
 #if 0
@@ -33,7 +36,7 @@
 #include "hardware/vreg.h"
 
 #include "audio_state.h"
-#include "bsp.h"
+#include "pins.h"
 #include "usb_audio.h"
 ////#include "i2s_rx.h"
 #include "dsp.h"
@@ -54,8 +57,8 @@ int main(void) {
 
     queue_init();
 	dsp_init();
-	puts("USB DAC MODE"); ////
-	audio_state.source = FROM_USB; ////
+	puts("USB DAC MODE"); ////今回の機器ではUSBのみなので条件分岐なしでUSBDACモードとする
+	audio_state.source = FROM_USB; ////ソースもUSBに設定
 
 	// core1(x8OverSampling~ΔΣ~pdm出力)起動
 	multicore_launch_core1(pdm_output);
@@ -83,7 +86,7 @@ int main(void) {
 ////			if(audio_state.source == FROM_USB) {
 ////				volume(dsp_buf, len, audio_state.vol_mul, audio_state.vol_shift);
 ////			}
-			volume(dsp_buf, len, audio_state.vol_mul, audio_state.vol_shift);
+			volume(dsp_buf, len, audio_state.vol_mul, audio_state.vol_shift);////条件分岐なしに音量処理を実行
 			DEBUG_PIN(PIN_GP13, 0);
 
 			// 連結ハーフバンドフィルタによる周波数適応オーバーサンプリング処理

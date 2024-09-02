@@ -1,9 +1,10 @@
 /**
  * @file pdm_output.c
  * @brief ハイレゾ改良版(HR2/V2)
- * @author geachlab, Yasushi MARUISHI
- * @version 0.4
- * @date 2023.02.21
+ * @author geachlab, Yasushi MARUISH
+ * @adder 菅原嘉美
+ * @version 0.4Y
+ * @date 2024.08.28
  * @note
  * 0.3 改良点： 
  * 旧処理 : Core0:オーバーサンプリングf特補正 ～ Core1:2次曲線補間 x64オーバーサンプリング　～　3次ΔΣ+4bitPWM
@@ -13,6 +14,7 @@
  * 　CPU処理時間に余裕ができ、4次・5次ΔΣ演算が可能となった。
  * 0.4 GPIO Drive strength 初期化ミス修正 GP14,GP16のみ設定→GP14~17を設定
  *     pdm fs設定をbsp.cに移設　
+ * @add_note fs設定をbsp.cからpins.cへ移植
  */
 
 #include <stdio.h>
@@ -24,7 +26,7 @@
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
 
-#include "bsp.h"
+#include "pins.h"
 #include "simple_queue.h"
 
 #if 0 /*PWM/PDM処理時間計測時に使用*/
@@ -234,7 +236,8 @@ void pwm_gpio_init()
 			gpio_set_slew_rate(pin, GPIO_SLEW_RATE_FAST);			// _FAST, _SLOW
 			// drive_strength を可変すると、N次歪みの出方が変わる
 			// 現状では最も歪みの少なかった2mA設定とした
-			gpio_set_drive_strength(pin, GPIO_DRIVE_STRENGTH_2MA);	// _2MA,_4MA,_8MA,_12MA
+			////今回は複数のバッファーを並列に接続しているため、要求電流量が増加したため12mAとする
+			gpio_set_drive_strength(pin, GPIO_DRIVE_STRENGTH_12MA);	// _2MA,_4MA,_8MA,_12MA
 			gpio_set_pulls(pin, 0, 0);								// 0:Disable,1:Enable
 			pin ++;
 		}

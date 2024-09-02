@@ -22,7 +22,7 @@
 #include "pico/stdlib.h"
 #include "hardware/interp.h"
 
-#include "bsp.h"
+#include "pins.h"
 #include "simple_queue.h"
 
 // クランプ幅:24.5bit (3.52dBFS 最大入力振幅の±1.5倍)
