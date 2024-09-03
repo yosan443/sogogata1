@@ -51,9 +51,8 @@ int main(void) {
     set_sys_clock_khz(CLK_SYS/1000, true);    //  208M8/48k/64 = 67.968->68, 208M8/44k1/64 = 73.979->74 x1.57 Overclock
 
 	all_gpio_init();
-    stdio_uart_init();
-//	uart_init(uart0, 1500000);	// 開発用 Baudを高速にしておき、I2S DMAの競合を回避する
-	puts("pico_1bit_dac_v2");
+////    stdio_uart_init();
+////	puts("pico_1bit_dac_v2"); ////I2S無効化によりUART通信も不要
 
     queue_init();
 	dsp_init();
@@ -63,9 +62,9 @@ int main(void) {
 	// core1(x8OverSampling~ΔΣ~pdm出力)起動
 	multicore_launch_core1(pdm_output);
 
-	// usb_audio/i2s_rx 受信ループ
+	// usb_audio 受信ループ
 	while(1){
-		// usb/i2s irq処理待ち
+		// usb irq処理待ち
 		__wfi();
 
 		// オーディオフォーマット更新時の処理
@@ -78,6 +77,7 @@ int main(void) {
 		// オーディオデータ受信時のdsp処理
 		if(audio_state.data_received) {
 			DEBUG_PIN(PIN_GP13, 1);
+			set_pico_onboard_led(true ); ////データ受信によりボード上LED点灯
 
 			int32_t* dsp_buf = audio_state.dsp_buf;
 			uint len = audio_state.len; 
@@ -113,6 +113,7 @@ int main(void) {
 
 			// 受信データ処理完了
 			audio_state.data_received = false;
+			set_pico_onboard_led(false);　////受信終了に伴いLED消灯
 		}
 		audio_state.format_updated = false;
 	}
