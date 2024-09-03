@@ -7,7 +7,10 @@
 void all_gpio_init(void);
 void set_pico_onboard_led(bool value);
 void set_dac_fs_group_48k(bool group_48k);
-void casergbled(void)
+void caseledR(bool value);
+void caseledG(bool value);
+void caseledB(bool value);
+void caseledall(bool value);
 
 //// システムクロック周波数指定 
 #define CLK_SYS	((uint32_t)208800000)

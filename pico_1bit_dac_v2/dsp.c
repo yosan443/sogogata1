@@ -358,21 +358,30 @@ int32_t* const dsp_buf_96k	= &dsp_buf_top[QUEUE_WIDTH * 6 / 8 +2];	//  96kHz用 
 int32_t* const dsp_buf_48k	= &dsp_buf_top[QUEUE_WIDTH * 7 / 8 +2];	//  48kHz用 (領域共有)
 
 // fs(サンプリング周波数)に応じたバッファポインタを返す関数
+////多少強引であるが、周波数に応じたケースLEDの発色機能を追加
 int32_t* get_dsp_buf_pointer(uint fs){
 	switch(fs){
 		case 384000:
 		case 352800:
 			return dsp_buf_384k;
+			caseledall(false);
+			caseledR(true );	
 		case 192000:
 		case 176400:
 			return dsp_buf_192k;
+			caseledall(false);
+			caseledR(true );
 		case 96000:
 		case 88200:
 			return dsp_buf_96k;
+			caseledall(false);
+			caseledG(true );
 		case 48000:
 		case 44100:
 		default:
 			return dsp_buf_48k;
+			caseledall(false);
+			caseledB(true );
 	}
 }
 

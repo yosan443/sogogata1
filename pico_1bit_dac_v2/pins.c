@@ -32,6 +32,24 @@ void set_pico_onboard_led(bool value){
 	gpio_put(PIN_PICO_LED, value);
 }
 
+void caseledall(bool value){
+	gpio_put(CASELEDR, value);
+	gpio_put(CASELEDG, value);
+	gpio_put(CASELEDB, value);
+}
+	
+void caseledR(bool value){
+	gpio_put(CASELEDR, value);
+}
+
+void caseledG(bool value){
+	gpio_put(CASELEDG, value);
+}
+
+void caseledB(bool value){
+	gpio_put(CASELEDB, value);
+}
+
 ////↓この部分はbsp.cから抜き出し。
 // PDM fs系列切替処理 _HR2までは pdm_output.c に実装
 // 旧set_pdm_fs_gpio(uint fs)を bool group_48k対応にしたもの
