@@ -1,11 +1,13 @@
 /**
  * @file audio_state.h
  * @author geachlab, Yasushi MARUISHI
+ * @adder 菅原嘉美
  * @brief USB/I2S受信・再生パラメタ共有構造体定義
- * @version 0.01
- * @date 2023-02-21
+ * @version 0.01Y
+ * @date 2024-08-28
  * @note 原型はusb_sound_cardの同名構造体
  *       I2S/USB両対応 mainで宣言、.fs(再生周波数)などを周辺ファイルと共有する
+ * @add_note I2S関連定義を無効化
  */
 #ifndef _AUDIO_STATE_H_
 #define _AUDIO_STATE_H_

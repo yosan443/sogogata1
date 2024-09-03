@@ -10,10 +10,10 @@ void set_dac_fs_group_48k(bool group_48k);
 
 //// システムクロック周波数指定 
 #define CLK_SYS	((uint32_t)208800000)
-#define DEFAULT_FS      44100           // Source Sampling Frequency[Hz]
-#define DEFAULT_BIT_DEPTH  16
-#define N_CH            2               // Number of Audio Channel
-#define DS_BITSHIFT     7               // DeltaSigma 演算前ビットシフト量 Ex. (24bit data)<<DS_BITSHIFT
+#define DEFAULT_FS      44100           ////初期状態のサンプリング周波数
+#define DEFAULT_BIT_DEPTH  16           ////初期状態の解像度
+#define N_CH            2               ////チャンネル数
+#define DS_BITSHIFT     7               ////ΔΣ変換時のシフト数
 
 #define PIN_TIME_MEASURE    12                  //// Core1 PDM処理時間計測用
 #define PIN_PIOT_MEASURE    13                  //// Core1 PIO処理時間計測用
@@ -35,15 +35,10 @@ void set_dac_fs_group_48k(bool group_48k);
 #define GP07	7
 #define GP08	8
 #define GP09	9
-//#define GP10	10
-//#define GP11	11
-//#define GP12	12
-//#define GP13	13
 #define GP14	14
 #define GP15	15
 #define GP16	16
 #define GP17	17
-//#define GP18	18
 #define GP19	19
 #define GP20	20
 #define GP21	21
@@ -51,8 +46,6 @@ void set_dac_fs_group_48k(bool group_48k);
 #define GP23	23
 #define GP24	24
 #define GP25	25
-//#define GP26	26
-//#define GP27	27
 #define GP28	28
 #define GP29	29
 

@@ -1,11 +1,10 @@
 /**
  * @file dsp.c
  * @author geachlab, Yasushi MARUISHI
- * @add Yoshimi Sugawara
+ * @adder Yoshimi Sugawara
  * @brief dsp処理関数群、周辺関数
  * @version 0.01Y
- * @date 2023-02-21
- * @add_date 2024-08-27
+ * @date 2024-08-27
  * @note 旧名称 oversampler.c
  *       dsp処理を集結 : oversampler, volume, asrc 周波数管理関数等  
  * @add_note 今回の開発する機器の目的に合わせ、一部記述を削除。加筆部分は行末に////と説明を追加。無効化部分は////でコメントアウト。
