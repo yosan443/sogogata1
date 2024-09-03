@@ -1,8 +1,8 @@
 ////2024年8月27日　菅原嘉美
 ////元のbsp.hには今回の機器には不要なものが多いと判断したため、それを参考に新たに作成。
 
-#ifndef _BSP_H_
-#define _BSP_H_
+#ifndef _PINS_H_
+#define _PINS_H_
 
 void all_gpio_init(void);
 void set_pico_onboard_led(bool value);

@@ -19,7 +19,7 @@ enum dac_source {
 };
 
 typedef struct {
-////	uint fs;				// 入力サンプリング周波数 = lrck 入力周波数 ////I2S用変数のため無効化
+	uint fs;				// 入力サンプリング周波数
 	uint bit_depth;			// ビット深度
 	uint osr;				// オーバサンプリングレート ex. 384k=8x48k;osr=8
 	bool group_48k_src;		// 48kHz系列フラグ(ソース) 
