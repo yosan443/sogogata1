@@ -26,10 +26,6 @@ void all_gpio_init(void){
 	//// 内臓DCDCのモードを常にPWMモードに設定
 	gpio_config(GP23 , GPIO_OUT, 1, 0, 0, GPIO_DRIVE_STRENGTH_2MA, GPIO_SLEW_RATE_SLOW);
 
-	//// VSYSピンの電圧を監視。
-	gpio_config(PIN_VSYS_LEVEL , GPIO_IN , 0, 0, 1, GPIO_DRIVE_STRENGTH_2MA, GPIO_SLEW_RATE_FAST);
-
-}	
 
 ////システムの状態判別に有用であったためbsp.cから流用。ボード上のLEDの発光を定義。
 void set_pico_onboard_led(bool value){

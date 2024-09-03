@@ -1,5 +1,5 @@
-#ifndef _DSP_H_
-#define _DSP_H_
+#ifndef _PINS_H_
+#define _PINS_H_
 
 bool get_group_48k(uint fs);
 uint get_osr(uint fs);
